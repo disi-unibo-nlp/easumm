@@ -1,0 +1,10 @@
+bert-score
+pyrouge
+nltk
+pandas
+codecarbon
+cytoolz
+wandb
+pytorch-transformers
+networkx
+scipy

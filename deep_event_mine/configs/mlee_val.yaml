@@ -1,0 +1,17 @@
+task_name: mlee
+
+bert_vocab: deep_event_mine/data/bert/scibert_scivocab_cased/vocab.txt
+bert_model: deep_event_mine/data/bert/scibert_scivocab_cased
+model_path: deep_event_mine/data/models/mlee/model/
+saved_params: deep_event_mine/data/models/mlee/mlee.param
+
+
+a2_entities: ['DNA_domain_or_region', 'Protein_domain_or_region']
+raw_text: True
+ner_predict_all: True
+
+compute_dem_loss: False
+compute_metrics: False
+gpu: 0
+batchsize: 16
+seed: 42

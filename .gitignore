@@ -1,0 +1,12 @@
+/deep_event_mine/CDSR_data_a2_files_mlee
+/deep_event_mine/data
+/easumm*
+/wandb
+/ROUGE
+/.idea
+__pycache__/
+.DS_Store
+*.tar.gz
+*.png
+*.pt
+
