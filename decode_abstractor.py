@@ -43,10 +43,10 @@ class BeamAbstractor(object):
 
         else:
             self._batchify = compose(
-                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=args.is_bipartite, test=True),
+                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=is_bipartite, test=True),
                 convert_batch_gat_bert(tokenizer, max_art),
                 prepro_fn_gat_bert(tokenizer, max_art, max_abs, 'test', args.dem_model,
-                                   is_bipartite=args.is_bipartite)
+                                   is_bipartite=is_bipartite)
             )
 
     def __call__(self, net, batch, beam_size=5, diverse=1.0):
@@ -98,7 +98,7 @@ def configure_decoding(model_dir, cuda, min_len, max_len, max_art):
         net.cuda()
 
     abstractor = BeamAbstractor(tokenizer, cuda, min_len, max_len, max_art,
-                                700, abs_args['nograph_channel'], abs_args['is_bipartite'])
+                                700, abs_args['nograph_channel'], net_args['is_bipartite'])
 
     return net, abstractor, loader, tokenizer
 
@@ -229,6 +229,7 @@ def _compute_score(hyps):
 
 if __name__ == '__main__':
 
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_dir', help='root of the abstractor model', required=True)
     parser.add_argument('--data_dir', action='store', default='CDSR_data',

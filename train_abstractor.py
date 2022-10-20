@@ -2,7 +2,6 @@
 import argparse
 import json
 import os
-
 from codecarbon import EmissionsTracker
 
 import wandb
@@ -29,7 +28,7 @@ from graph_augmented_sum.data.batcher import prepro_fn_gat_bert, convert_batch_g
 
 
 def configure_net(vocab_size, emb_dim, n_hidden, bidirectional,
-                  n_layer, max_art, dropout, no_etype, is_bipartite, dem_model, nograph_channel, bert_model, rgat):
+                  n_layer, max_art, dropout, no_etype, is_bipartite, dem_model, nograph_channel, bert_model, gnn):
     net_args = {}
     net_args['vocab_size'] = vocab_size
     net_args['lstm_dim'] = emb_dim
@@ -40,6 +39,10 @@ def configure_net(vocab_size, emb_dim, n_hidden, bidirectional,
     net_args['dropout'] = dropout
     net_args['bert_length'] = max_art
     net_args['is_bipartite'] = is_bipartite
+    net_args['gnn_model'] = gnn
+
+    if gnn == 'rgat' or gnn == 'rgcn':
+        args.rtype = True
 
     if nograph_channel:
         net = CopySumm(**net_args)
@@ -73,7 +76,7 @@ def build_loaders(bert_model):
 
     # coll_fn is needed to filter out too short abstracts (<100) and articles (<300)
     train_loader = DataLoader(
-        csvDataset('train', args.data_dir), batch_size=args.batch_size,
+        csvDataset('debug', args.data_dir), batch_size=args.batch_size,
         shuffle=True,
         num_workers=4 if cuda else 0,
         collate_fn=coll_fn
@@ -121,16 +124,16 @@ class BasicTrainer:
 
         else:
             self._batchify_train = compose(
-                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=args.is_bipartite),
+                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=args.is_bipartite, rtype=args.rtype),
                 convert_batch_gat_bert(tokenizer, args.max_art),
                 prepro_fn_gat_bert(tokenizer, args.max_art, args.max_abs, 'train', args.dem_model,
-                                   is_bipartite=args.is_bipartite)
+                                   is_bipartite=args.is_bipartite, rtype=args.rtype)
             )
             self._batchify_val = compose(
                 batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=args.is_bipartite),
                 convert_batch_gat_bert(tokenizer, args.max_art),
                 prepro_fn_gat_bert(tokenizer, args.max_art, args.max_abs, 'val', args.dem_model,
-                                   is_bipartite=args.is_bipartite)
+                                   is_bipartite=args.is_bipartite, rtype=args.rtype)
             )
 
     def train(self, net, train_loader, val_loader, optimizer):
@@ -281,7 +284,7 @@ def main(args):
     net, net_args = configure_net(len(tokenizer.encoder), args.emb_dim,
                                   args.n_hidden, args.bi, args.n_layer,
                                   args.max_art, args.dropout, args.no_etype, args.is_bipartite,
-                                  args.dem_model, args.nograph_channel, args.bert_model, args.rgat)
+                                  args.dem_model, args.nograph_channel, args.bert_model, args.gnn)
 
     optimizer = optim.AdamW(net.parameters(), lr=args.lr)
 
@@ -355,8 +358,8 @@ if __name__ == '__main__':
                         help="Don't use additional graph channel")
     parser.add_argument('--pretrained_ckpt', action='store', default=None,
                         help='Pretrained model checkpoint')
-    parser.add_argument('--rgat', action='store_true', default=False,
-                        help='use R-GAT instead of GAT')
+    parser.add_argument('--gnn', action='store', default='gat',
+                        help='GNN model to encode graph')
     parser.add_argument('--is_bipartite', action='store_true', default=False,
                         help='treat DEM edges as nodes')
 
@@ -382,10 +385,9 @@ if __name__ == '__main__':
                         help='validation batch size')
     parser.add_argument('--num_worker', type=int, action='store', default=4,
                         help='cpu num using for dataloader')
-    parser.add_argument(
-        '--ckpt_freq', type=int, action='store', default=1036,
-        help='number of update steps for checkpoint and validation'
-    )
+    parser.add_argument('--ckpt_freq', type=int, action='store', default=1036,
+                        help='number of update steps for checkpoint and validation'
+                        )
     parser.add_argument('--sched_thr', type=float, action='store', default=2e-3,
                         help='Threshold for measuring the new optimum, to only focus on significant changes')
     parser.add_argument('--patience', type=int, action='store', default=3,
@@ -398,7 +400,7 @@ if __name__ == '__main__':
     parser.add_argument('--force_lr', action='store_true', default=False,
                         help='Force to use --lr when resume training')
     parser.add_argument('--gpu_id', type=int, default=0, help='gpu id')
-    parser.add_argument('--wandb_log',  action='store_true', default=False,
+    parser.add_argument('--wandb_log', action='store_true', default=False,
                         help='login to wandb')
     args = parser.parse_args()
 

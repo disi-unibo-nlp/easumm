@@ -82,7 +82,7 @@ def prepro_fn(max_src_len, max_tgt_len, batch):
 
 
 @curry
-def prepro_fn_gat_bert(tokenizer, max_src_len, max_tgt_len, dset, dmodel, batch, is_bipartite=False):
+def prepro_fn_gat_bert(tokenizer, max_src_len, max_tgt_len, dset, dmodel, batch, is_bipartite=False, rtype=False):
     """
     batch is a list of of tuples, where each tuple represents a document.
     We consider tuple = batch[i] the tuple corresponding to the i-th document
@@ -140,6 +140,7 @@ def prepro_fn_gat_bert(tokenizer, max_src_len, max_tgt_len, dset, dmodel, batch,
         edgetypes = []
         edge_words = []
         edgew_ids = []
+        edge_features = []
         word2id = tokenizer.encoder
         if os.path.exists(a2_file_path):
             with open(a2_file_path) as a2_file:
@@ -209,6 +210,19 @@ def prepro_fn_gat_bert(tokenizer, max_src_len, max_tgt_len, dset, dmodel, batch,
                     edgew_ids = [word2id['Other']]
                     edge_words.append([-1])
 
+            elif rtype:
+                with open('deep_event_mine/type_embs/dem_edge_types_mapping.pkl', 'rb') as etm:
+                    edge_types_mapping = pickle.load(etm)
+
+                for _, edges in full_graph.edges._adjdict.items():
+                    for _, edge in edges.items():
+                        edge_key = edge['key']
+                        edge_key = ''.join([i for i in edge_key if not i.isdigit()])
+                        edge_features.append(edge_types_mapping[edge_key])
+
+            else:
+                edge_features = None
+
             adj = torch.from_numpy(networkx.adjacency_matrix(full_graph).todense()).to(device)
 
         else:
@@ -224,7 +238,7 @@ def prepro_fn_gat_bert(tokenizer, max_src_len, max_tgt_len, dset, dmodel, batch,
             nodewords.append([0])
             nodetypes.append('Other')
 
-        return source, target, article_id, (nodewords, adj, nodetypes), (edgew_ids, edgetypes, edge_words)
+        return source, target, article_id, (nodewords, adj, nodetypes), (edgew_ids, edgetypes, edge_words, edge_features)
 
     batch = list(map(prepro_one, batch))
 
@@ -238,7 +252,7 @@ def convert_batch_gat_bert(tokenizer, max_src_len, batch):
     unk = tokenizer.unk_token_id
     sources, targets, articles_ids, ginfo, einfo = map(list, unzip(batch))
     nodewords, adjs, nodetypes = list(unzip(ginfo))
-    edgew_ids, edgetypes, edge_word = list(unzip(einfo))
+    edgew_ids, edgetypes, edge_word, edge_features = list(unzip(einfo))
     src_length = [len(src) for src in sources]
     ext_word2id = dict(word2id)
     for source in sources:
@@ -263,17 +277,17 @@ def convert_batch_gat_bert(tokenizer, max_src_len, batch):
     sources = conver2id(unk, word2id, sources)
     tar_ins = conver2id(unk, word2id, targets)
     targets = conver2id(unk, ext_word2id, targets)
-    batch = [sources, list(zip(src_exts, tar_ins, targets, src_length, nodewords, adjs, nodetypes, articles_ids, edgew_ids, edgetypes, edge_word))]
+    batch = [sources, list(zip(src_exts, tar_ins, targets, src_length, nodewords, adjs, nodetypes, articles_ids, edgew_ids, edgetypes, edge_word, edge_features))]
     return batch
 
 
 @curry
-def batchify_fn_gat_bert(tokenizer, data, cuda=True, test=False, is_bipartite=False):
+def batchify_fn_gat_bert(tokenizer, data, cuda=True, test=False, is_bipartite=False, rtype=False):
     start = tokenizer.bos_token_id
     end = tokenizer.eos_token_id
     pad = tokenizer.pad_token_id
     sources, ext_srcs, tar_ins, targets, src_lens, nodes,\
-    adjs, nodetypes, articles_ids, edgew_ids, edgetypes, edge_words = (data[0],) + tuple(
+    adjs, nodetypes, articles_ids, edgew_ids, edgetypes, edge_words, edge_features = (data[0],) + tuple(
         map(list, unzip(data[1])))
 
     sources = [src for src in sources]
@@ -303,13 +317,16 @@ def batchify_fn_gat_bert(tokenizer, data, cuda=True, test=False, is_bipartite=Fa
     if is_bipartite:
         edgew_ids = pad_batch_tensorize(edgew_ids, pad=0, cuda=cuda)
         edge_words = pad_batch_tensorize_3d(edge_words, pad=-1, cuda=cuda)
+    elif rtype:
+        flat_ef = [item for sublist in edge_features for item in sublist]
+        edge_features = torch.as_tensor(flat_ef)
 
     if test:
         fw_args = (source, src_lens, ext_src, ext_vsize, articles_ids),\
-                  (_nodes, nmask, adjs, node_num, nodetypes), (edgew_ids, edgetypes, edge_words)
+                  (_nodes, nmask, adjs, node_num, nodetypes), (edgew_ids, edgetypes, edge_words, edge_features)
     else:
         fw_args = (source, src_lens, ext_src, ext_vsize, articles_ids), (tar_in, target), (
-        _nodes, nmask, adjs, node_num, nodetypes), (edgew_ids, edgetypes, edge_words)
+        _nodes, nmask, adjs, node_num, nodetypes), (edgew_ids, edgetypes, edge_words, edge_features)
 
     return fw_args
 

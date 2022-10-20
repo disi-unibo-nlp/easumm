@@ -2,6 +2,7 @@ import torch
 import math
 from torch import nn
 from torch.nn import functional as F
+from torch_geometric.nn import RGCNConv
 from graph_augmented_sum.model.util import len_mask
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.autograd import Variable
@@ -288,70 +289,6 @@ class graph_encode(nn.Module):
                     print('gent:', gent)
         return None, glob ,(gents, emask)
 
-# class gat_encode(nn.Module):
-#     def __init__(self, args):
-#         super().__init__()
-#         self.args = args
-#         rtoks = args.get('rtoks', 1)
-#         hidden_size = args.get('graph_hsz', 300)
-#         blockdrop = args.get('blockdrop', 0.1)
-#         prop = args.get('prop', 1)
-#         sparse = args.get('sparse', False)
-#         model = args.get('graph_model', 'transformer')
-#         adj_type = args.get('adj_type', 'concat_triple')
-#         self._adj_type = adj_type
-#
-#         if self._adj_type == 'concat_triple':
-#             self._rproj = nn.Linear(hidden_size*3, hidden_size)
-#             self._rrelu = nn.LeakyReLU()
-#         self._rtrans = nn.Linear(hidden_size, hidden_size)
-#
-#         self.gat = Block(args)
-#         # if model == "gat":
-#         #     self.gat = nn.ModuleList([MultiHeadAttention(hidden_size, hidden_size, hidden_size, h=4, dropout_p=blockdrop) for _ in range(prop)])
-#         # else:
-#         #     self.gat = nn.ModuleList([Block(args) for _ in range(prop)])
-#
-#         self._pad_entity = nn.Parameter(torch.Tensor(1, hidden_size))
-#         nn.init.uniform_(self._pad_entity)
-#
-#
-#         self.prop = prop
-#         self.sparse = sparse
-#         self.model = model
-#
-#     def pad(self,tensor,length):
-#         return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).fill_(0)])
-#
-#     def forward(self, adjs, triples, nodes, node_num, relations):
-#         # input triples B*(R*3d)  R*d
-#         triple_outs = []
-#         for _i, adj in enumerate(adjs):
-#             if self._adj_type == 'concat_triple':
-#                 triple = self._rrelu(self._rproj(triples[_i])) # R * d
-#                 R = triple.size(0)
-#                 N = node_num[_i]
-#                 ngraph = nodes[_i, :N, :] # N * d
-#                 mask = (adj == 0) # N * R
-#                 # triple_out = self.gat(ngraph, triple, mask)
-#                 triple_out = triple
-#             else:
-#                 N = node_num[_i]
-#                 ngraph = nodes[_i, :N, :]  # N * d
-#                 mask = (adj == 0)  # N * N
-#                 triple_out = self.gat(ngraph, ngraph, mask)
-#             triple_outs.append(triple_out)
-#         max_n= max(node_num)
-#         nodes = torch.stack(
-#                 [torch.cat([s, torch.zeros(max_n - n, s.size(1)).to(s.device)], dim=0)
-#                  if n != max_n
-#                  else s
-#                  for s, n in zip(triple_outs, node_num)],
-#                 dim=0
-#             )
-#         # relations = self._rtrans(relations)
-#
-#         return nodes, relations
 
 class gat_encode(nn.Module):
     def __init__(self, args):
@@ -856,3 +793,22 @@ class GraphConvolution(nn.Module):
         return self.__class__.__name__ + ' (' \
                + str(self.in_features) + ' -> ' \
                + str(self.out_features) + ')'
+
+
+class RGCN(torch.nn.Module):
+    def __init__(self, hidden_channels, node_size, num_relations):
+        super().__init__()
+
+        self.conv1 = RGCNConv(node_size, hidden_channels, num_relations, num_blocks=5)
+        self.conv2 = RGCNConv(hidden_channels, node_size, num_relations, num_blocks=5)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+
+    def forward(self, x, edge_index, edge_type):
+        x = self.conv1(x, edge_index, edge_type)
+        x = F.dropout(x, p=0.1, training=self.training)
+        x = self.conv2(x, edge_index, edge_type)
+
+        return x

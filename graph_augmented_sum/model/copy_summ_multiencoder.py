@@ -1,9 +1,12 @@
 import pickle
+import numpy as np
 import torch
+import networkx as nx
 from torch import nn
 from torch.nn import init
 from torch.nn import functional as F
 from torch.nn.utils.rnn import pad_sequence
+from torch_geometric.nn import GAT as GATPYG
 
 from graph_augmented_sum.model.attention import badanau_attention
 from graph_augmented_sum.model.util import len_mask, sequence_mean, sequence_loss
@@ -14,7 +17,7 @@ from graph_augmented_sum.model.rnn import lstm_multiembedding_encoder
 from graph_augmented_sum.model.roberta import RobertaEmbedding
 from graph_augmented_sum.model.scibert import ScibertEmbedding
 from graph_augmented_sum.model.rnn import MultiLayerLSTMCells
-from graph_augmented_sum.model.graph_enc import Block
+from graph_augmented_sum.model.graph_enc import Block, RGCN
 
 INIT = 1e-2
 BERT_MAX_LEN = 512
@@ -56,7 +59,7 @@ class _CopyLinear(nn.Module):
 
 class CopySummGat(Seq2SeqSumm):
     def __init__(self, vocab_size, lstm_dim,
-                 n_hidden, bidirectional, n_layer, side_dim, etype_path, is_bipartite, bert_model, dropout=0.0, bert_length=512, gat_args={}):
+                 n_hidden, bidirectional, n_layer, side_dim, etype_path, is_bipartite, bert_model, dropout=0.0, bert_length=512, gnn_model='gat'):
         super().__init__(vocab_size, lstm_dim,
                          n_hidden, bidirectional, n_layer, dropout)
 
@@ -107,9 +110,22 @@ class CopySummGat(Seq2SeqSumm):
         graph_hsz = self._node_size
         self._graph_hsz = graph_hsz
 
-        gat_args['graph_hsz'] = graph_hsz
-        gat_args['node_size'] = self._node_size
-        self.gat = Block(gat_args)
+        self.gnn_model = gnn_model
+        if gnn_model == 'gat':
+            self.gnn = Block({'graph_hsz': graph_hsz, 'node_size': self._node_size})
+
+        elif gnn_model == 'rgcn':
+            with open('deep_event_mine/type_embs/dem_edge_types_mapping.pkl', 'rb') as etm:
+                edge_types_mapping = pickle.load(etm)
+            self.gnn = RGCN(graph_hsz, self._node_size, len(edge_types_mapping))
+
+        elif gnn_model == 'rgat':
+            with open('deep_event_mine/type_embs/dem_edge_types_mapping.pkl', 'rb') as etm:
+                edge_types_mapping = pickle.load(etm)
+
+            emb_matrix = torch.eye(len(edge_types_mapping))
+            self.one_hot_embedding = torch.nn.Embedding.from_pretrained(emb_matrix, freeze=True)
+            self.gnn = GATPYG(in_channels=self._node_size, hidden_channels=graph_hsz, num_layers=2, edge_dim=len(edge_types_mapping))
 
         self._node_enc = MeanSentEncoder()
 
@@ -361,7 +377,7 @@ class CopySummGat(Seq2SeqSumm):
 
         if self._is_bipartite:
 
-            edge_ids, edgetypes, edgewords = einfo
+            edge_ids, edgetypes, edgewords, _ = einfo
             _, n_edge, n_eword = edgewords.size()
             nums_edge = [len(et) for et in edgetypes]
 
@@ -405,38 +421,73 @@ class CopySummGat(Seq2SeqSumm):
 
         init_nodes = nodes
 
-        triple_outs = []
-        for _i, adj in enumerate(adjs):
+        if self.gnn_model == 'gat':
+            triple_outs = []
+            for _i, adj in enumerate(adjs):
 
-            # number of nodes e.g 31
-            N = len(adj)
+                # number of nodes e.g 31
+                N = len(adj)
 
-            if N > 0:
+                if N > 0:
 
-                # just get the relevant nodes of the _i-th document graph
-                # e.g size (31, 256) where nodes size is e.g. (32, 45, 256)
-                ngraph = nodes[_i, :N, :]  # N * d
-                mask = (adj == 0)  # N * N
-                triple_out = self.gat(ngraph, ngraph, mask)
+                    # just get the relevant nodes of the _i-th document graph
+                    # e.g size (31, 256) where nodes size is e.g. (32, 45, 256)
+                    ngraph = nodes[_i, :N, :]  # N * d
+                    mask = (adj == 0)  # N * N
+                    triple_out = self.gnn(ngraph, ngraph, mask)
 
-            else:
-                triple_out = None
+                else:
+                    triple_out = None
 
-            triple_outs.append(triple_out)
+                triple_outs.append(triple_out)
 
-        max_n = max(node_num)
+            max_n = max(node_num)
 
-        nodes_list = []
-        for s, n in zip(triple_outs, node_num):
-            if n == 0:
-                nodes_list.append(torch.zeros(max_n - n, self._graph_hsz).to(self._device))
-            elif n != max_n:
-                nodes_list.append(torch.cat([s, torch.zeros(max_n - n, self._graph_hsz).to(self._device)], dim=0))
-            else:
-                nodes_list.append(s)
+            nodes_list = []
+            for s, n in zip(triple_outs, node_num):
+                if n == 0:
+                    nodes_list.append(torch.zeros(max_n - n, self._graph_hsz).to(self._device))
+                elif n != max_n:
+                    nodes_list.append(torch.cat([s, torch.zeros(max_n - n, self._graph_hsz).to(self._device)], dim=0))
+                else:
+                    nodes_list.append(s)
 
-        # e.g. (3, 45, 256)
-        nodes = torch.stack(nodes_list, dim=0)
+            # e.g. (3, 45, 256)
+            nodes = torch.stack(nodes_list, dim=0)
+
+        else:
+            _, _, _, edge_features = einfo
+            batch_graph = nx.DiGraph()
+            batch_nodes = []
+            for batch_i, adj in enumerate(adjs):
+                N = len(adj)
+
+                if N > 0:
+                    graph = nx.from_numpy_matrix(np.matrix(adj), create_using=nx.DiGraph)
+                    batch_graph = nx.union(batch_graph, graph, rename=('', f'{batch_i}-'))
+                    batch_nodes.append(nodes[batch_i, :N, :])
+
+            batch_adj = torch.from_numpy(nx.adjacency_matrix(batch_graph).todense())
+            edge_index = batch_adj.nonzero().t().contiguous()
+            batch_nodes = torch.cat(batch_nodes, dim=0)
+
+            if self.gnn_model == 'rgat':
+                edge_attr = self.one_hot_embedding.weight[edge_features]
+                nodes = self.gnn(batch_nodes, edge_index, edge_attr=edge_attr)
+
+            elif self.gnn_model == 'rgcn':
+                nodes = self.gnn(batch_nodes, edge_index, edge_features)
+
+            node_out_list = []
+            curr_batch_num = 0
+            prev_batch_num = 0
+            for batch_id, batch_num in enumerate(node_num):
+                curr_batch_num += batch_num
+                node_out_list.append(nodes[prev_batch_num:curr_batch_num])
+                prev_batch_num += batch_num
+
+            nodes = pad_sequence(node_out_list, batch_first=True)
+
         nodes = init_nodes + nodes
 
         return nodes, node_num
@@ -453,7 +504,7 @@ class CopySummGat(Seq2SeqSumm):
         vsize = self._embedding.num_embeddings
         attention, init_dec_states = self.encode(article, art_lens)
 
-        nodes = self._encode_graph(attention, nodewords, nmask, adjs, node_num, node_type, info[2])
+        nodes, node_num = self._encode_graph(attention, nodewords, nmask, adjs, node_num, node_type, info[2])
 
         mask = len_mask(art_lens, attention.device).unsqueeze(-2)
         all_attention = (attention, mask, extend_art, extend_vsize)

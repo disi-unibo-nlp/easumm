@@ -3,7 +3,9 @@
 /easumm*
 /wandb
 /ROUGE
+CDSR_data/debug.csv
 /.idea
+/dumb_data
 __pycache__/
 .DS_Store
 *.tar.gz
