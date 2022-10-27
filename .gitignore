@@ -8,6 +8,8 @@ CDSR_data/debug.csv
 /dumb_data
 __pycache__/
 .DS_Store
+train_easumm.sh
+emissions*
 *.tar.gz
 *.png
 *.pt

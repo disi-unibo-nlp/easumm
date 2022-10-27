@@ -463,11 +463,11 @@ class CopySummGat(Seq2SeqSumm):
                 N = len(adj)
 
                 if N > 0:
-                    graph = nx.from_numpy_matrix(np.matrix(adj), create_using=nx.DiGraph)
+                    graph = nx.from_numpy_matrix(np.matrix(adj.cpu()))
                     batch_graph = nx.union(batch_graph, graph, rename=('', f'{batch_i}-'))
                     batch_nodes.append(nodes[batch_i, :N, :])
 
-            batch_adj = torch.from_numpy(nx.adjacency_matrix(batch_graph).todense())
+            batch_adj = torch.from_numpy(nx.adjacency_matrix(batch_graph).todense()).to(self._device)
             edge_index = batch_adj.nonzero().t().contiguous()
             batch_nodes = torch.cat(batch_nodes, dim=0)
 

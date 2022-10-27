@@ -799,8 +799,8 @@ class RGCN(torch.nn.Module):
     def __init__(self, hidden_channels, node_size, num_relations):
         super().__init__()
 
-        self.conv1 = RGCNConv(node_size, hidden_channels, num_relations, num_blocks=5)
-        self.conv2 = RGCNConv(hidden_channels, node_size, num_relations, num_blocks=5)
+        self.conv1 = RGCNConv(node_size, hidden_channels, num_relations, num_blocks=4)
+        self.conv2 = RGCNConv(hidden_channels, node_size, num_relations, num_blocks=4)
 
     def reset_parameters(self):
         self.conv1.reset_parameters()

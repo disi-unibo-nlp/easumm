@@ -43,6 +43,8 @@ def configure_net(vocab_size, emb_dim, n_hidden, bidirectional,
 
     if gnn == 'rgat' or gnn == 'rgcn':
         args.rtype = True
+    else:
+        args.rtype = False
 
     if nograph_channel:
         net = CopySumm(**net_args)
@@ -76,7 +78,7 @@ def build_loaders(bert_model):
 
     # coll_fn is needed to filter out too short abstracts (<100) and articles (<300)
     train_loader = DataLoader(
-        csvDataset('debug', args.data_dir), batch_size=args.batch_size,
+        csvDataset('train', args.data_dir), batch_size=args.batch_size,
         shuffle=True,
         num_workers=4 if cuda else 0,
         collate_fn=coll_fn
@@ -94,10 +96,11 @@ def build_loaders(bert_model):
 class BasicTrainer:
     """ Basic trainer with minimal function and early stopping"""
 
-    def __init__(self, ckpt_freq, patience, scheduler, cuda, grad_fn, tokenizer, save_dir, stats):
+    def __init__(self, ckpt_freq, patience, scheduler, cuda, grad_fn, tokenizer, save_dir, stats, total_epochs):
 
         self._ckpt_freq = ckpt_freq
         self._patience = patience
+        self._total_epochs = total_epochs
         self._save_dir = save_dir
 
         self._scheduler = scheduler
@@ -130,7 +133,7 @@ class BasicTrainer:
                                    is_bipartite=args.is_bipartite, rtype=args.rtype)
             )
             self._batchify_val = compose(
-                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=args.is_bipartite),
+                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=args.is_bipartite, rtype=args.rtype),
                 convert_batch_gat_bert(tokenizer, args.max_art),
                 prepro_fn_gat_bert(tokenizer, args.max_art, args.max_abs, 'val', args.dem_model,
                                    is_bipartite=args.is_bipartite, rtype=args.rtype)
@@ -148,6 +151,9 @@ class BasicTrainer:
 
             pgb = tqdm(train_loader, leave=False)
             for batch in pgb:
+
+                if self._total_epochs == self._epoch:
+                    break
 
                 self._step += 1
 
@@ -174,6 +180,7 @@ class BasicTrainer:
                         break
 
                     net.train()
+                            
             else:
                 emissions = tracker.stop()
                 total_emissions += emissions
@@ -198,7 +205,7 @@ class BasicTrainer:
         })
 
         self._scheduler.step(val_metric)
-
+       
         # check if the number of times in a row that we don't experience an improvement
         # is greater than patience e.g. 5, if that's the case we interrupt training
         stop = self.check_stop(val_metric, net, optimizer)
@@ -234,7 +241,7 @@ class BasicTrainer:
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
 
-            name = 'best_ckpt-{}'.format(self._epoch)
+            name = 'best_ckpt'
             save_dict['state_dict'] = net.state_dict()
             save_dict['optimizer_state_dict'] = optimizer.state_dict()
             save_dict['stats'] = {'epoch': self._epoch,
@@ -274,10 +281,6 @@ class BasicTrainer:
 
 
 def main(args):
-    if not args.wandb_log:
-        os.environ["WANDB_DISABLED"] = "true"
-    else:
-        wandb.init(entity=args.wandb_entity)
 
     train_loader, val_loader, tokenizer = build_loaders(args.bert_model)
 
@@ -310,7 +313,7 @@ def main(args):
     grad_fn = get_basic_grad_fn(net, args.clip)
 
     trainer = BasicTrainer(args.ckpt_freq, args.patience, scheduler, args.cuda, grad_fn, tokenizer, args.ckpt_dir,
-                           stats)
+                           stats, args.epochs)
 
     # save experiment setting
     if not exists(args.ckpt_dir):
@@ -323,8 +326,12 @@ def main(args):
 
     with open(join(args.ckpt_dir, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=4)
-
-    wandb.init(project="EventAugmentedSumm", config=meta)
+    
+    if not args.wandb_log:
+        os.environ["WANDB_DISABLED"] = "true"
+    
+    wandb.init(config=meta)
+    wandb.run.name = args.ckpt_dir
 
     print('')
     print('start training with the following hyper-parameters:')
@@ -392,6 +399,8 @@ if __name__ == '__main__':
                         help='Threshold for measuring the new optimum, to only focus on significant changes')
     parser.add_argument('--patience', type=int, action='store', default=3,
                         help='patience for early stopping')
+    parser.add_argument('--epochs', type=int, action='store', default=20,
+                        help='Total number of epochs')
 
     parser.add_argument('--no_cuda', action='store_true',
                         help='disable GPU training')
