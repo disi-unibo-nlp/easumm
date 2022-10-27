@@ -3,7 +3,7 @@
 /easumm*
 /wandb
 /ROUGE
-CDSR_data/debug.csv
+CDSR_data/debug*
 /.idea
 /dumb_data
 __pycache__/

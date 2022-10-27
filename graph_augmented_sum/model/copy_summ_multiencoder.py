@@ -457,36 +457,40 @@ class CopySummGat(Seq2SeqSumm):
 
         else:
             _, _, _, edge_features = einfo
-            batch_graph = nx.DiGraph()
-            batch_nodes = []
-            for batch_i, adj in enumerate(adjs):
-                N = len(adj)
 
-                if N > 0:
-                    graph = nx.from_numpy_matrix(np.matrix(adj.cpu()))
-                    batch_graph = nx.union(batch_graph, graph, rename=('', f'{batch_i}-'))
-                    batch_nodes.append(nodes[batch_i, :N, :])
+            if len(edge_features) == 0:
+                nodes = torch.zeros_like(init_nodes).to(self._device)
+            else:
+                batch_graph = nx.DiGraph()
+                batch_nodes = []
+                for batch_i, adj in enumerate(adjs):
+                    N = len(adj)
 
-            batch_adj = torch.from_numpy(nx.adjacency_matrix(batch_graph).todense()).to(self._device)
-            edge_index = batch_adj.nonzero().t().contiguous()
-            batch_nodes = torch.cat(batch_nodes, dim=0)
+                    if N > 0:
+                        graph = nx.from_numpy_matrix(np.matrix(adj.cpu()))
+                        batch_graph = nx.union(batch_graph, graph, rename=('', f'{batch_i}-'))
+                        batch_nodes.append(nodes[batch_i, :N, :])
 
-            if self.gnn_model == 'rgat':
-                edge_attr = self.one_hot_embedding.weight[edge_features]
-                nodes = self.gnn(batch_nodes, edge_index, edge_attr=edge_attr)
+                batch_adj = torch.from_numpy(nx.adjacency_matrix(batch_graph).todense()).to(self._device)
+                edge_index = batch_adj.nonzero().t().contiguous()
+                batch_nodes = torch.cat(batch_nodes, dim=0)
 
-            elif self.gnn_model == 'rgcn':
-                nodes = self.gnn(batch_nodes, edge_index, edge_features)
+                if self.gnn_model == 'rgat':
+                    edge_attr = self.one_hot_embedding.weight[edge_features]
+                    nodes = self.gnn(batch_nodes, edge_index, edge_attr=edge_attr)
 
-            node_out_list = []
-            curr_batch_num = 0
-            prev_batch_num = 0
-            for batch_id, batch_num in enumerate(node_num):
-                curr_batch_num += batch_num
-                node_out_list.append(nodes[prev_batch_num:curr_batch_num])
-                prev_batch_num += batch_num
+                elif self.gnn_model == 'rgcn':
+                    nodes = self.gnn(batch_nodes, edge_index, edge_features)
 
-            nodes = pad_sequence(node_out_list, batch_first=True)
+                node_out_list = []
+                curr_batch_num = 0
+                prev_batch_num = 0
+                for batch_id, batch_num in enumerate(node_num):
+                    curr_batch_num += batch_num
+                    node_out_list.append(nodes[prev_batch_num:curr_batch_num])
+                    prev_batch_num += batch_num
+
+                nodes = pad_sequence(node_out_list, batch_first=True)
 
         nodes = init_nodes + nodes
 
