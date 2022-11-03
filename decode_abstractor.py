@@ -5,6 +5,7 @@ import shutil
 from os.path import join, exists
 
 import torch
+import nltk
 from torch import multiprocessing as mp
 from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer, AutoTokenizer
@@ -27,7 +28,7 @@ from graph_augmented_sum.data.batcher import prepro_fn_gat_bert, convert_batch_g
 
 
 class BeamAbstractor(object):
-    def __init__(self, tokenizer, cuda, min_len, max_len, max_art, max_abs, nograph_channel, is_bipartite):
+    def __init__(self, tokenizer, cuda, min_len, max_len, max_art, max_abs, nograph_channel, is_bipartite, rtype):
         self._min_len = min_len
         self._max_len = max_len
         self._unk = tokenizer.unk_token_id
@@ -43,10 +44,10 @@ class BeamAbstractor(object):
 
         else:
             self._batchify = compose(
-                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=is_bipartite, test=True),
+                batchify_fn_gat_bert(tokenizer, cuda=cuda, is_bipartite=is_bipartite, rtype=rtype, test=True),
                 convert_batch_gat_bert(tokenizer, max_art),
                 prepro_fn_gat_bert(tokenizer, max_art, max_abs, 'test', args.dem_model,
-                                   is_bipartite=is_bipartite)
+                                   is_bipartite=is_bipartite, rtype=rtype)
             )
 
     def __call__(self, net, batch, beam_size=5, diverse=1.0):
@@ -90,6 +91,11 @@ def configure_decoding(model_dir, cuda, min_len, max_len, max_art):
         net = CopySumm(**net_args)
     else:
         net = CopySummGat(**net_args)
+    
+    if net_args['gnn_model']  == 'rgat' or net_args['gnn_model'] == 'rgcn':
+        rtype = True
+    else:
+        rtype = False
 
     tokenizer, loader = build_loaders(bert_model)
 
@@ -98,7 +104,7 @@ def configure_decoding(model_dir, cuda, min_len, max_len, max_art):
         net.cuda()
 
     abstractor = BeamAbstractor(tokenizer, cuda, min_len, max_len, max_art,
-                                700, abs_args['nograph_channel'], net_args['is_bipartite'])
+                                700, abs_args['nograph_channel'], net_args['is_bipartite'], rtype)
 
     return net, abstractor, loader, tokenizer
 
@@ -228,7 +234,6 @@ def _compute_score(hyps):
 
 
 if __name__ == '__main__':
-
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_dir', help='root of the abstractor model', required=True)
@@ -259,5 +264,9 @@ if __name__ == '__main__':
         shutil.rmtree(output_dir)
 
     os.makedirs(output_dir)
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt')
 
     decode(args.cuda, args.min_dec_word, args.max_dec_word, args.max_input, args.model_dir)

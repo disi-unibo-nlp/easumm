@@ -263,7 +263,7 @@ class BasicTrainer:
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
 
-            name = 'best_ckpt-{}'.format(self._epoch)
+            name = 'best_ckpt'
             save_dict['state_dict'] = net.state_dict()
             save_dict['optimizer_state_dict'] = optimizer.state_dict()
             save_dict['stats'] = {'epoch': self._epoch,
