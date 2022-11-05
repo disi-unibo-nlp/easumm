@@ -55,7 +55,7 @@ python eval_full_model.py  --decode_dir ckpts
 ## ✉ Contacts
 
 * Giacomo Frisoni, [giacomo.frisoni[at]unibo.it](mailto:giacomo.frisoni@unibo.it)
-* Paolo Italiani, [paolo.italiani[at]studio.unibo.it](mailto:paolo.italiani2@unibo.it)
+* Paolo Italiani, [paolo.italiani[at]studio.unibo.it](mailto:paolo.italiani@unibo.it)
 * Gianluca Moro, [gianluca.moro[at]unibo.it](mailto:gianluca.moro@unibo.it)
 
 If you have troubles, suggestions, or ideas, the [Discussion](https://github.com/disi-unibo-nlp/easumm/discussions) board might have some relevant information. If not, you can post your questions there 💬🗨.
