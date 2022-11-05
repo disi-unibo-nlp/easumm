@@ -10,7 +10,7 @@ Code and data accompanying the paper ["Graph-Enhanced Biomedical Abstractive Sum
 EASumm is the first abstractive summarization model augmenting source documents with explicit, structured medical evidence extracted from them, thereby concretizing a tandem text-graph architecture.
 
 <p align="center">
-  <img src="./figures/overview.png" title="EASumm architecture overview" alt="EASumm architecture overview">
+  <img src="overview.png" title="EASumm architecture overview" alt="EASumm architecture overview" width="220">
 </p>
 
 ## Install requirements
