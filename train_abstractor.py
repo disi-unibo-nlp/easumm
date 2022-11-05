@@ -289,6 +289,8 @@ def main(args):
                                   args.max_art, args.dropout, args.no_etype, args.is_bipartite,
                                   args.dem_model, args.nograph_channel, args.bert_model, args.gnn)
 
+    print(f'Number of parameters:{sum(p.numel() for p in net.parameters() if p.requires_grad)}')
+
     optimizer = optim.AdamW(net.parameters(), lr=args.lr)
 
     if args.pretrained_ckpt is not None:

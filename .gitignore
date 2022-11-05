@@ -9,6 +9,7 @@ CDSR_data/debug*
 __pycache__/
 .DS_Store
 train_easumm.sh
+relations_stats.py
 emissions*
 *.tar.gz
 *.png
