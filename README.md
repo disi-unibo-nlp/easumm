@@ -24,6 +24,14 @@ decode
 python decode_abstractor.py  --model_dir ckpts
 ```
 
+Download ROUGE-1.5.5 and tell pyrouge the ROUGE path
+```
+gdown 1Df0FY4k-EGbvOlIBk2-Ih7J5N5ss-Ko4
+tar -xvf ROUGE.tar.gz
+rm ROUGE.tar.gz
+pyrouge_set_rouge_path $(pwd)/ROUGE
+```
+
 
 evaluate 
 
